@@ -30,7 +30,10 @@ internal static class IntegrationTests
             StateStore.AddFiles(data.Groups[1], [Environment.GetFolderPath(Environment.SpecialFolder.UserProfile)]);
             store.Save(data);
             window = new MainWindow(store); app.MainWindow = window; window.Show(); await Settle();
-            Check(DesktopHost.GetParent(window.NativeHandle) == DesktopHost.FindDesktop() && DesktopHost.FindDesktop() != 0, "actual desktop parent attached");
+            Check(!DesktopHost.IsChild(window.NativeHandle), "standalone top-level HWND; never reparented into Explorer");
+            Check(DesktopHost.GetParent(window.NativeHandle) != DesktopHost.FindDesktop(), "Explorer is not the window owner or parent");
+            Check(!DesktopHost.IsTopmost(window.NativeHandle), "desktop panel is not topmost");
+            Check(DesktopHost.IsBelowForeground(window.NativeHandle), "panel sits below the current foreground application");
             Check(DesktopHost.IsLayered(window.NativeHandle), "native WS_EX_LAYERED enabled (transparent rendering)");
             Check(DesktopHost.IsWindowVisible(window.NativeHandle), "native window visible");
             DesktopHost.GetWindowRect(window.NativeHandle, out var beforeMove);

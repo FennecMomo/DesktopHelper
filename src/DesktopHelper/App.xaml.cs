@@ -12,6 +12,7 @@ public partial class App : System.Windows.Application
     protected override void OnStartup(StartupEventArgs e)
     {
         base.OnStartup(e);
+        if (e.Args.Contains("--refresh-desktop")) { DesktopHost.RefreshDesktop(); Shutdown(); return; }
         if (e.Args.Contains("--self-test")) { Shutdown(SelfTests.Run()); return; }
         if (e.Args.Contains("--integration-test"))
         {

@@ -28,11 +28,12 @@ public sealed class MainWindow : Window
     private readonly TextBlock mode = new() { Text = "桌面空间", FontSize = 12, Foreground = Brush("#71DCC4") };
     private readonly ScrollViewer scroll;
     private readonly DispatcherTimer saveTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
-    private readonly DispatcherTimer hostTimer = new() { Interval = TimeSpan.FromSeconds(5) };
+    private readonly DispatcherTimer hostTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
     private readonly Dictionary<string, ImageSource?> icons = new(StringComparer.OrdinalIgnoreCase);
     private readonly System.Windows.Forms.NotifyIcon tray;
     private nint handle;
-    private bool attached;
+    private bool userHidden;
+    private nint lastForeground;
     private bool quitting;
     private bool ready;
     private bool arranging;
@@ -49,6 +50,7 @@ public sealed class MainWindow : Window
         Width = state.Width; Height = state.Height; MinWidth = 320; MinHeight = 240;
         Left = state.X; Top = state.Y;
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
+        ShowActivated = false;
         AllowsTransparency = true;
         ShowInTaskbar = false; Background = System.Windows.Media.Brushes.Transparent; FontFamily = new("Microsoft YaHei UI"); FontSize = 12;
         var root = new Grid(); Content = root;
@@ -88,24 +90,29 @@ public sealed class MainWindow : Window
         scroll.SizeChanged += (_, _) => Reflow();
         SizeChanged += (_, _) => QueueSave();
         saveTimer.Tick += (_, _) => { saveTimer.Stop(); Save(); };
-        hostTimer.Tick += (_, _) => { if (!arranging && (!attached || !DesktopHost.IsWindow(DesktopHost.GetParent(handle)))) Attach(); };
+        hostTimer.Tick += (_, _) =>
+        {
+            if (arranging || userHidden) return;
+            var foreground = DesktopHost.GetForegroundWindow();
+            if (foreground != lastForeground || DesktopHost.DesktopIsForeground()) { DesktopHost.MaintainDesktopLayer(handle); lastForeground = foreground; }
+        };
         tray = new() { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application, Text = "DesktopHelper · 桌面空间", Visible = true };
         tray.DoubleClick += (_, _) => Dispatcher.Invoke(Reveal);
         var trayMenu = new System.Windows.Forms.ContextMenuStrip();
         trayMenu.Items.Add("显示桌面区域", null, (_, _) => Dispatcher.Invoke(Reveal));
         trayMenu.Items.Add("整理快捷方式", null, (_, _) => Dispatcher.Invoke(Arrange));
         trayMenu.Items.Add("关闭鼠标穿透", null, (_, _) => Dispatcher.Invoke(() => { state.ClickThrough = false; UpdateAppearance(); Save(); }));
-        trayMenu.Items.Add("隐藏桌面区域", null, (_, _) => Dispatcher.Invoke(Hide));
+        trayMenu.Items.Add("隐藏桌面区域", null, (_, _) => Dispatcher.Invoke(HidePanel));
         trayMenu.Items.Add("退出", null, (_, _) => Dispatcher.Invoke(Quit)); tray.ContextMenuStrip = trayMenu;
-        SourceInitialized += (_, _) => { handle = new WindowInteropHelper(this).Handle; if (!arranging) Attach(); else { ShowInTaskbar = true; mode.Text = "整理模式"; } };
+        SourceInitialized += (_, _) => { handle = new WindowInteropHelper(this).Handle; DesktopHost.ConfigureStandalone(handle); mode.Text = arranging ? "整理模式" : "DESKTOP HELPER"; };
         Loaded += (_, _) =>
         {
             ready = true;
             var dpi = VisualTreeHelper.GetDpi(this);
             DesktopHost.Place(handle, (int)state.X, (int)state.Y, (int)Math.Round(Width * dpi.DpiScaleX), (int)Math.Round(Height * dpi.DpiScaleY));
-            EnsureVisible(); UpdateLock(); UpdateAppearance(); RenderGroups(); hostTimer.Start(); if (store.Warning is not null) status.Text = store.Warning; Save();
+            EnsureVisible(); UpdateLock(); UpdateAppearance(); RenderGroups(); if (!arranging) DesktopHost.MaintainDesktopLayer(handle); hostTimer.Start(); if (store.Warning is not null) status.Text = store.Warning; Save();
         };
-        Closing += (_, e) => { if (!quitting) { e.Cancel = true; Hide(); } };
+        Closing += (_, e) => { if (!quitting) { e.Cancel = true; HidePanel(); } };
     }
     private static ControlTemplate ThumbTemplate(string color = "#28688098")
     {
@@ -125,12 +132,6 @@ public sealed class MainWindow : Window
         };
         thumb.DragCompleted += (_, _) => { EnsureVisible(); QueueSave(); };
     }
-    private void Attach()
-    {
-        attached = DesktopHost.Attach(handle);
-        mode.Text = attached ? "DESKTOP HELPER" : "桌面连接中";
-        ShowInTaskbar = !attached;
-    }
     private System.Drawing.Rectangle CurrentWorkArea()
     {
         DesktopHost.GetWindowRect(handle, out var rect);
@@ -146,11 +147,12 @@ public sealed class MainWindow : Window
         var w = (int)Math.Round(Width * dpi.DpiScaleX); var h = (int)Math.Round(Height * dpi.DpiScaleY);
         DesktopHost.Place(handle, Math.Clamp(rect.Left, work.Left, Math.Max(work.Left, work.Right - w)), Math.Clamp(rect.Top, work.Top, Math.Max(work.Top, work.Bottom - h)), w, h);
     }
-    public void Reveal() { arranging = false; Show(); Attach(); EnsureVisible(); UpdateAppearance(); Save(); }
+    public void Reveal() { arranging = false; userHidden = false; Show(); mode.Text = "DESKTOP HELPER"; EnsureVisible(); UpdateAppearance(); DesktopHost.MaintainDesktopLayer(handle); Save(); }
+    private void HidePanel() { userHidden = true; Hide(); }
     private void Arrange()
     {
         DesktopHost.GetWindowRect(handle, out var rect);
-        arranging = true; DesktopHost.Detach(handle); attached = false; ShowInTaskbar = true;
+        arranging = true; userHidden = false;
         Show(); DesktopHost.Place(handle, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top);
         mode.Text = "整理模式"; UpdateAppearance(); Activate(); Save();
     }
@@ -165,10 +167,10 @@ public sealed class MainWindow : Window
             store.Save(state);
             File.WriteAllText(Path.Combine(store.DirectoryPath, "status.json"), System.Text.Json.JsonSerializer.Serialize(new
             {
-                Version = "0.1.0", ProcessId = Environment.ProcessId, DesktopAttached = attached,
+                Version = "0.1.1", ProcessId = Environment.ProcessId, DesktopMode = !arranging, Strategy = "StandaloneLayeredBottom",
                 ParentClass = DesktopHost.ClassName(DesktopHost.GetParent(handle)), ParentHandle = DesktopHost.GetParent(handle).ToInt64(),
                 Visible = DesktopHost.IsWindowVisible(handle), X = rect.Left, Y = rect.Top, PixelWidth = rect.Right - rect.Left, PixelHeight = rect.Bottom - rect.Top,
-                Width, Height, state.NoBackground, state.ClickThrough, Layered = DesktopHost.IsLayered(handle), GroupCount = state.Groups.Count, ItemCount = state.Groups.Sum(g => g.Items.Count)
+                Width, Height, state.NoBackground, state.ClickThrough, Layered = DesktopHost.IsLayered(handle), ChildWindow = DesktopHost.IsChild(handle), Topmost = DesktopHost.IsTopmost(handle), GroupCount = state.Groups.Count, ItemCount = state.Groups.Sum(g => g.Items.Count)
             }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
             return true;
         }
@@ -207,7 +209,7 @@ public sealed class MainWindow : Window
         };
         menu.Items.Add(auto);
         Menu(menu, "打开配置文件夹", () => LaunchPath(store.DirectoryPath));
-        Menu(menu, "隐藏（托盘双击恢复）", Hide);
+        Menu(menu, "隐藏（托盘双击恢复）", HidePanel);
         Menu(menu, "退出", Quit);
         menu.IsOpen = true;
     }
@@ -221,7 +223,7 @@ public sealed class MainWindow : Window
     {
         frame.Background = state.NoBackground && !arranging ? System.Windows.Media.Brushes.Transparent : Brush("#EB151E2B");
         frame.BorderBrush = state.NoBackground && !arranging ? System.Windows.Media.Brushes.Transparent : Brush("#6B536B83");
-        DesktopHost.SetClickThrough(handle, state.ClickThrough && !arranging);
+        DesktopHost.SetClickThrough(handle, state.ClickThrough && !arranging, !arranging);
     }
     private void UpdateStatus()
     {
