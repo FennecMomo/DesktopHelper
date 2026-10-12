@@ -56,4 +56,4 @@ GitHub Actions 在 `main` 更新时构建独立 EXE，可在 Actions 的 `Deskto
 
 透明及穿透方案参考 [FennecMomo/DesktopTools](https://github.com/FennecMomo/DesktopTools) 的 `desktoptools/native.py` 与 `overlay_window.pyw`（参考提交 `fd2f56a`）：分层透明和 `WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`，在本项目通过 WPF `AllowsTransparency` 提供每像素 alpha。没有直接把 Tk 的颜色键逻辑套到 WPF；保留快捷方式可点击与可从托盘恢复的行为。
 
-版本：0.1.2。
+版本：0.1.3。

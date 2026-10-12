@@ -69,6 +69,7 @@ internal static class IntegrationTests
             Check(window.Width == 360 && window.Height == 380 && Math.Abs(rect.Left - saved.X) <= 1 && Math.Abs(rect.Top - saved.Y) <= 1, "close/reopen preserves size and physical position at current DPI");
             Check(store.Load().Groups[0].Items[0].Path == shortcut, "close/reopen preserves original .lnk target");
             window.TestResize(680, 530); await Settle(); window.CaptureRender(Path.Combine(root, "restored.png"));
+            await window.CaptureMenuRender(Path.Combine(root, "options-menu.png"));
             results.Add("ALL " + results.Count + " INTEGRATION CHECKS PASSED");
             File.WriteAllLines(Path.Combine(root, "results.txt"), results);
             window.PrepareClose(); window.Close(); app.Shutdown(0);

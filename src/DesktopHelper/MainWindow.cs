@@ -52,6 +52,7 @@ public sealed class MainWindow : Window
         WindowStyle = WindowStyle.None; ResizeMode = ResizeMode.NoResize;
         ShowActivated = false;
         AllowsTransparency = true;
+        Foreground = Brush("#EDF2F8");
         ShowInTaskbar = false; Background = System.Windows.Media.Brushes.Transparent; FontFamily = new("Microsoft YaHei UI"); FontSize = 12;
         var root = new Grid(); Content = root;
         frame = new Border { BorderBrush = Brush("#354458"), BorderThickness = new(1), CornerRadius = new(14), Padding = new(18, 14, 18, 10) };
@@ -166,7 +167,7 @@ public sealed class MainWindow : Window
             store.Save(state);
             File.WriteAllText(Path.Combine(store.DirectoryPath, "status.json"), System.Text.Json.JsonSerializer.Serialize(new
             {
-                Version = "0.1.2", ProcessId = Environment.ProcessId, DesktopMode = !arranging, Strategy = "StandaloneLayeredBottom",
+                Version = "0.1.3", ProcessId = Environment.ProcessId, DesktopMode = !arranging, Strategy = "StandaloneLayeredBottom",
                 ParentClass = DesktopHost.ClassName(DesktopHost.GetParent(handle)), ParentHandle = DesktopHost.GetParent(handle).ToInt64(),
                 Visible = DesktopHost.IsWindowVisible(handle), X = rect.Left, Y = rect.Top, PixelWidth = rect.Right - rect.Left, PixelHeight = rect.Bottom - rect.Top,
                 Width, Height, state.NoBackground, state.ClickThrough, Layered = DesktopHost.IsLayered(handle), ChildWindow = DesktopHost.IsChild(handle), Topmost = DesktopHost.IsTopmost(handle), GroupCount = state.Groups.Count, ItemCount = state.Groups.Sum(g => g.Items.Count)
@@ -191,6 +192,10 @@ public sealed class MainWindow : Window
     }
     private void ShowMenu()
     {
+        CreateOptionsMenu().IsOpen = true;
+    }
+    private System.Windows.Controls.ContextMenu CreateOptionsMenu()
+    {
         var menu = new System.Windows.Controls.ContextMenu();
         Menu(menu, arranging ? "完成整理，返回桌面" : "整理快捷方式（临时窗口）", arranging ? Reveal : Arrange);
         Menu(menu, state.NoBackground ? "显示区域底色" : "透明区域底色（空白处穿透）", () => { state.NoBackground = !state.NoBackground; UpdateAppearance(); Save(); });
@@ -210,7 +215,7 @@ public sealed class MainWindow : Window
         Menu(menu, "打开配置文件夹", () => LaunchPath(store.DirectoryPath));
         Menu(menu, "隐藏（托盘双击恢复）", HidePanel);
         Menu(menu, "退出", Quit);
-        menu.IsOpen = true;
+        return menu;
     }
     private static bool IsAutoStart() { using var key = Registry.CurrentUser.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run"); return key?.GetValue("DesktopHelper") is string; }
     private void UpdateLock()
@@ -340,9 +345,10 @@ public sealed class MainWindow : Window
     private static string? Ask(string title, string label, string value)
     {
         var dialog = new Window { Title = title, Width = 380, Height = 205, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, Background = Brush("#1D2938"), ShowInTaskbar = false, FontFamily = new("Microsoft YaHei UI"), Topmost = true };
+        dialog.Foreground = Brush("#EDF2F8");
         var panel = new StackPanel { Margin = new(22) }; dialog.Content = panel;
         panel.Children.Add(new TextBlock { Text = label, Margin = new(0, 0, 0, 10) });
-        var input = new TextBox { Text = value, MaxLength = 80, Padding = new(7), FontSize = 14 }; panel.Children.Add(input);
+        var input = new TextBox { Text = value, MaxLength = 80, Padding = new(7), FontSize = 14, Foreground = Brush("#182432"), Background = System.Windows.Media.Brushes.White }; panel.Children.Add(input);
         var buttons = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, Margin = new(0, 16, 0, 0) };
         var cancel = MakeButton("取消", () => dialog.DialogResult = false); cancel.IsCancel = true; buttons.Children.Add(cancel);
         var ok = MakeButton("保存", () => { if (!string.IsNullOrWhiteSpace(input.Text)) dialog.DialogResult = true; }); ok.IsDefault = true; ok.Margin = new(8, 0, 0, 0); buttons.Children.Add(ok); panel.Children.Add(buttons);
@@ -363,6 +369,22 @@ public sealed class MainWindow : Window
         bitmap.Render(visual);
         var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
         using var output = File.Create(path); encoder.Save(output);
+    }
+    internal async Task CaptureMenuRender(string path)
+    {
+        var menu = CreateOptionsMenu();
+        menu.PlacementTarget = this; menu.IsOpen = true;
+        await Dispatcher.InvokeAsync(() => { }, DispatcherPriority.ApplicationIdle);
+        menu.UpdateLayout();
+        var bitmap = new System.Windows.Media.Imaging.RenderTargetBitmap((int)Math.Ceiling(menu.ActualWidth), (int)Math.Ceiling(menu.ActualHeight), 96, 96, PixelFormats.Pbgra32);
+        bitmap.Render(menu);
+        var encoder = new System.Windows.Media.Imaging.PngBitmapEncoder(); encoder.Frames.Add(System.Windows.Media.Imaging.BitmapFrame.Create(bitmap));
+        using var output = File.Create(path); encoder.Save(output);
+        menu.IsOpen = false;
+        menu.PlacementTarget = null;
+        // Let the popup release mouse capture and its native window before the
+        // integration harness closes the owner and shuts down the dispatcher.
+        await Dispatcher.Yield(DispatcherPriority.ContextIdle);
     }
     internal void TestResize(double width, double height) { Width = width; Height = height; UpdateLayout(); Reflow(); UpdateLayout(); Save(); }
     internal void TestMove(double dx, double dy)
