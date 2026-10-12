@@ -46,7 +46,7 @@ internal static class IntegrationTests
                 var bitmap = System.Windows.Media.Imaging.BitmapDecoder.Create(imageFile, System.Windows.Media.Imaging.BitmapCreateOptions.None, System.Windows.Media.Imaging.BitmapCacheOption.OnLoad).Frames[0];
                 var pixels = new byte[bitmap.PixelWidth * bitmap.PixelHeight * 4]; bitmap.CopyPixels(pixels, bitmap.PixelWidth * 4, 0);
                 Check(pixels[(450 * bitmap.PixelWidth + 500) * 4 + 3] == 0, "empty desktop area renders zero alpha instead of black");
-                Check(pixels[(60 * bitmap.PixelWidth + 40) * 4 + 3] > 0, "title drag surface remains native-hit-testable with transparent background");
+                Check(pixels[(30 * bitmap.PixelWidth + 40) * 4 + 3] > 0, "title drag surface remains native-hit-testable with transparent background");
             }
             var second = VisualTreeHelper.GetOffset(window.GroupPanel.Children[1]);
             Check(second.X > 0 && second.Y == 0, "wide groups arranged side by side");

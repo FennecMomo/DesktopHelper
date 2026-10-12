@@ -25,7 +25,7 @@ public sealed class MainWindow : Window
     private readonly DesktopState state;
     private readonly WrapPanel groups = new();
     private readonly TextBlock status = new() { FontSize = 11, Foreground = Brush("#9BAABD"), VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, Margin = new(0, 0, 12, 0) };
-    private readonly TextBlock mode = new() { Text = "桌面空间", FontSize = 12, Foreground = Brush("#71DCC4") };
+    private readonly Border notice = new() { Background = Brush("#49372A"), CornerRadius = new(7), Padding = new(10), Margin = new(0, 8, 0, 0), Visibility = Visibility.Collapsed };
     private readonly ScrollViewer scroll;
     private readonly DispatcherTimer saveTimer = new() { Interval = TimeSpan.FromMilliseconds(400) };
     private readonly DispatcherTimer hostTimer = new() { Interval = TimeSpan.FromMilliseconds(250) };
@@ -57,28 +57,27 @@ public sealed class MainWindow : Window
         frame = new Border { BorderBrush = Brush("#354458"), BorderThickness = new(1), CornerRadius = new(14), Padding = new(18, 14, 18, 10) };
         root.Children.Add(frame);
         var layout = new Grid(); frame.Child = layout;
-        layout.RowDefinitions.Add(new() { Height = new(66) });
+        layout.RowDefinitions.Add(new() { Height = new(44) });
         layout.RowDefinitions.Add(new() { Height = new(1, GridUnitType.Star) });
-        layout.RowDefinitions.Add(new() { Height = new(32) });
+        layout.RowDefinitions.Add(new() { Height = GridLength.Auto });
         var header = new Grid(); layout.Children.Add(header);
         // A layered window's fully transparent pixels do not receive native mouse input.
         // Keep a visible drag surface even when the main background is transparent.
-        moveThumb = new Thumb { Cursor = System.Windows.Input.Cursors.SizeAll, Template = ThumbTemplate("#A01D2938"), Height = 54, VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Stretch };
+        moveThumb = new Thumb { Cursor = System.Windows.Input.Cursors.SizeAll, Template = ThumbTemplate("#202C3C"), Height = 32, VerticalAlignment = VerticalAlignment.Top, HorizontalAlignment = HorizontalAlignment.Stretch };
         header.Children.Add(moveThumb);
-        var heading = new StackPanel { IsHitTestVisible = false, VerticalAlignment = VerticalAlignment.Top };
-        heading.Children.Add(mode);
-        heading.Children.Add(new TextBlock { Text = "桌面空间", FontSize = 19, FontWeight = FontWeights.SemiBold, Margin = new(0, 5, 0, 0) });
-        header.Children.Add(heading);
+        moveThumb.ToolTip = "拖动移动区域";
+        var gripMarks = new StackPanel { IsHitTestVisible = false, HorizontalAlignment = HorizontalAlignment.Left, VerticalAlignment = VerticalAlignment.Top, Margin = new(12, 10, 0, 0) };
+        for (var i = 0; i < 3; i++) gripMarks.Children.Add(new Border { Width = 16, Height = 2, Background = Brush("#8CA2B7"), Margin = new(0, 0, 0, 3), CornerRadius = new(1) });
+        header.Children.Add(gripMarks);
         var controls = new StackPanel { Orientation = Orientation.Horizontal, HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Top };
         var add = MakeButton("＋ 分组", NewGroup); add.ToolTip = "创建一个新的快捷方式分组"; controls.Children.Add(add);
         var menu = MakeButton("⋯", ShowMenu); menu.Margin = new(6, 0, 0, 0); menu.ToolTip = "设置与退出"; controls.Children.Add(menu); header.Children.Add(controls);
         scroll = new ScrollViewer { VerticalScrollBarVisibility = ScrollBarVisibility.Auto, HorizontalScrollBarVisibility = ScrollBarVisibility.Disabled, Content = groups, Padding = new(0, 0, 3, 0) };
         Grid.SetRow(scroll, 1); layout.Children.Add(scroll);
-        Grid.SetRow(status, 2); layout.Children.Add(status);
+        notice.Child = status; Grid.SetRow(notice, 2); layout.Children.Add(notice);
         AddResize(root, HorizontalAlignment.Right, VerticalAlignment.Stretch, 7, double.NaN, System.Windows.Input.Cursors.SizeWE, true, false);
         AddResize(root, HorizontalAlignment.Stretch, VerticalAlignment.Bottom, double.NaN, 7, System.Windows.Input.Cursors.SizeNS, false, true);
         AddResize(root, HorizontalAlignment.Right, VerticalAlignment.Bottom, 18, 18, System.Windows.Input.Cursors.SizeNWSE, true, true);
-        var grip = new TextBlock { Text = "◢", Foreground = Brush("#688199"), HorizontalAlignment = HorizontalAlignment.Right, VerticalAlignment = VerticalAlignment.Bottom, Margin = new(0, 0, 3, 1), IsHitTestVisible = false }; root.Children.Add(grip);
         moveThumb.DragDelta += (_, e) =>
         {
             if (state.Locked) return;
@@ -104,13 +103,13 @@ public sealed class MainWindow : Window
         trayMenu.Items.Add("关闭鼠标穿透", null, (_, _) => Dispatcher.Invoke(() => { state.ClickThrough = false; UpdateAppearance(); Save(); }));
         trayMenu.Items.Add("隐藏桌面区域", null, (_, _) => Dispatcher.Invoke(HidePanel));
         trayMenu.Items.Add("退出", null, (_, _) => Dispatcher.Invoke(Quit)); tray.ContextMenuStrip = trayMenu;
-        SourceInitialized += (_, _) => { handle = new WindowInteropHelper(this).Handle; DesktopHost.ConfigureStandalone(handle); mode.Text = arranging ? "整理模式" : "DESKTOP HELPER"; };
+        SourceInitialized += (_, _) => { handle = new WindowInteropHelper(this).Handle; DesktopHost.ConfigureStandalone(handle); };
         Loaded += (_, _) =>
         {
             ready = true;
             var dpi = VisualTreeHelper.GetDpi(this);
             DesktopHost.Place(handle, (int)state.X, (int)state.Y, (int)Math.Round(Width * dpi.DpiScaleX), (int)Math.Round(Height * dpi.DpiScaleY));
-            EnsureVisible(); UpdateLock(); UpdateAppearance(); RenderGroups(); if (!arranging) DesktopHost.MaintainDesktopLayer(handle); hostTimer.Start(); if (store.Warning is not null) status.Text = store.Warning; Save();
+            EnsureVisible(); UpdateLock(); UpdateAppearance(); RenderGroups(); if (!arranging) DesktopHost.MaintainDesktopLayer(handle); hostTimer.Start(); if (store.Warning is not null) ShowNotice(store.Warning); Save();
         };
         Closing += (_, e) => { if (!quitting) { e.Cancel = true; HidePanel(); } };
     }
@@ -121,7 +120,7 @@ public sealed class MainWindow : Window
     }
     private void AddResize(Grid root, HorizontalAlignment h, VerticalAlignment v, double w, double height, System.Windows.Input.Cursor cursor, bool x, bool y)
     {
-        var thumb = new Thumb { HorizontalAlignment = h, VerticalAlignment = v, Width = w, Height = height, Cursor = cursor, Template = ThumbTemplate() };
+        var thumb = new Thumb { HorizontalAlignment = h, VerticalAlignment = v, Width = w, Height = height, Cursor = cursor, Template = ThumbTemplate(x && y ? "#50688098" : "#01688098"), ToolTip = "拖动调整大小" };
         root.Children.Add(thumb); resizeThumbs.Add(thumb);
         thumb.DragDelta += (_, e) =>
         {
@@ -147,14 +146,14 @@ public sealed class MainWindow : Window
         var w = (int)Math.Round(Width * dpi.DpiScaleX); var h = (int)Math.Round(Height * dpi.DpiScaleY);
         DesktopHost.Place(handle, Math.Clamp(rect.Left, work.Left, Math.Max(work.Left, work.Right - w)), Math.Clamp(rect.Top, work.Top, Math.Max(work.Top, work.Bottom - h)), w, h);
     }
-    public void Reveal() { arranging = false; userHidden = false; Show(); mode.Text = "DESKTOP HELPER"; EnsureVisible(); UpdateAppearance(); DesktopHost.MaintainDesktopLayer(handle); Save(); }
+    public void Reveal() { arranging = false; userHidden = false; Show(); EnsureVisible(); UpdateAppearance(); DesktopHost.MaintainDesktopLayer(handle); Save(); }
     private void HidePanel() { userHidden = true; Hide(); }
     private void Arrange()
     {
         DesktopHost.GetWindowRect(handle, out var rect);
         arranging = true; userHidden = false;
         Show(); DesktopHost.Place(handle, rect.Left, rect.Top, rect.Right - rect.Left, rect.Bottom - rect.Top);
-        mode.Text = "整理模式"; UpdateAppearance(); Activate(); Save();
+        UpdateAppearance(); Activate(); Save();
     }
     private void QueueSave() { if (!ready) return; saveTimer.Stop(); saveTimer.Start(); }
     private bool Save()
@@ -167,14 +166,14 @@ public sealed class MainWindow : Window
             store.Save(state);
             File.WriteAllText(Path.Combine(store.DirectoryPath, "status.json"), System.Text.Json.JsonSerializer.Serialize(new
             {
-                Version = "0.1.1", ProcessId = Environment.ProcessId, DesktopMode = !arranging, Strategy = "StandaloneLayeredBottom",
+                Version = "0.1.2", ProcessId = Environment.ProcessId, DesktopMode = !arranging, Strategy = "StandaloneLayeredBottom",
                 ParentClass = DesktopHost.ClassName(DesktopHost.GetParent(handle)), ParentHandle = DesktopHost.GetParent(handle).ToInt64(),
                 Visible = DesktopHost.IsWindowVisible(handle), X = rect.Left, Y = rect.Top, PixelWidth = rect.Right - rect.Left, PixelHeight = rect.Bottom - rect.Top,
                 Width, Height, state.NoBackground, state.ClickThrough, Layered = DesktopHost.IsLayered(handle), ChildWindow = DesktopHost.IsChild(handle), Topmost = DesktopHost.IsTopmost(handle), GroupCount = state.Groups.Count, ItemCount = state.Groups.Sum(g => g.Items.Count)
             }, new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
             return true;
         }
-        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { status.Text = "保存失败：" + ex.Message; return false; }
+        catch (Exception ex) when (ex is IOException or UnauthorizedAccessException) { ShowNotice("保存失败：" + ex.Message); return false; }
     }
     internal void Quit()
     {
@@ -217,7 +216,7 @@ public sealed class MainWindow : Window
     private void UpdateLock()
     {
         moveThumb.IsEnabled = !state.Locked; foreach (var thumb in resizeThumbs) thumb.IsEnabled = !state.Locked;
-        UpdateStatus();
+        moveThumb.ToolTip = state.Locked ? "位置已锁定，可从菜单解锁" : "拖动移动区域";
     }
     private void UpdateAppearance()
     {
@@ -225,10 +224,10 @@ public sealed class MainWindow : Window
         frame.BorderBrush = state.NoBackground && !arranging ? System.Windows.Media.Brushes.Transparent : Brush("#6B536B83");
         DesktopHost.SetClickThrough(handle, state.ClickThrough && !arranging, !arranging);
     }
-    private void UpdateStatus()
+    private void ShowNotice(string text)
     {
-        status.Text = state.Locked ? "位置已锁定 · 从右上角菜单解锁" : "拖入快捷方式 · 拖动标题移动 · 右下角缩放";
-        status.ToolTip = status.Text;
+        status.Text = text; status.ToolTip = text;
+        notice.Visibility = Visibility.Visible;
     }
     private void NewGroup()
     {
@@ -240,15 +239,20 @@ public sealed class MainWindow : Window
         groups.Children.Clear();
         foreach (var group in state.Groups)
         {
-            var box = new Border { Background = Brush("#CE1D2938"), BorderBrush = Brush("#654C647B"), BorderThickness = new(1), CornerRadius = new(10), Padding = new(12), Margin = new(0, 0, 10, 10), AllowDrop = true };
+            var box = new Border { Background = Brush("#202C3C"), BorderBrush = Brush("#654C647B"), BorderThickness = new(1), CornerRadius = new(10), Padding = new(12), Margin = new(0, 0, 10, 10), AllowDrop = true };
             var body = new StackPanel(); box.Child = body;
             var bar = new DockPanel { Margin = new(0, 0, 0, 12) };
             var settings = MakeButton("⋯", () => GroupMenu(group)); settings.Padding = new(8, 1, 8, 1); settings.ToolTip = "分组设置：" + group.Name; DockPanel.SetDock(settings, Dock.Right); bar.Children.Add(settings);
             var add = MakeButton("＋", () => AddItems(group)); add.Padding = new(8, 1, 8, 1); add.ToolTip = "添加到「" + group.Name + "」"; DockPanel.SetDock(add, Dock.Right); bar.Children.Add(add);
-            bar.Children.Add(new TextBlock { Text = group.Name + "  " + group.Items.Count, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = group.Name }); body.Children.Add(bar);
+            bar.Children.Add(new TextBlock { Text = group.Name, FontSize = 14, FontWeight = FontWeights.SemiBold, VerticalAlignment = VerticalAlignment.Center, TextTrimming = TextTrimming.CharacterEllipsis, ToolTip = group.Name }); body.Children.Add(bar);
             var items = new WrapPanel(); body.Children.Add(items);
             if (group.Items.Count == 0)
-                body.Children.Add(new TextBlock { Text = "拖入应用、快捷方式或文件夹\n也可以点击 ＋ 添加", Foreground = Brush("#8FA0B6"), FontSize = 12, LineHeight = 23, Margin = new(4, 15, 0, 22), TextWrapping = TextWrapping.Wrap });
+            {
+                var emptyAction = MakeButton("＋ 添加快捷方式", () => AddItems(group));
+                emptyAction.Margin = new(0, 8, 0, 8); emptyAction.Padding = new(10, 14, 10, 14);
+                emptyAction.ToolTip = "也可以将应用、文件或文件夹拖进分组";
+                body.Children.Add(emptyAction);
+            }
             foreach (var item in group.Items) items.Children.Add(ItemButton(group, item));
             box.DragOver += (_, e) => { e.Effects = e.Data.GetDataPresent(System.Windows.DataFormats.FileDrop) || e.Data.GetDataPresent(typeof(ShortcutDrag)) ? System.Windows.DragDropEffects.Copy : System.Windows.DragDropEffects.None; e.Handled = true; };
             box.Drop += (_, e) =>
@@ -262,7 +266,7 @@ public sealed class MainWindow : Window
             };
             groups.Children.Add(box);
         }
-        Reflow(); UpdateStatus();
+        Reflow();
     }
     private sealed record ShortcutDrag(ShortcutGroup Group, ShortcutItem Item);
     private Button ItemButton(ShortcutGroup group, ShortcutItem item)
