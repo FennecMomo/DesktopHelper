@@ -18,7 +18,9 @@ Windows 桌面上的分组启动区域。区域的位置和尺寸由你拖动，
 
 ## 数据与恢复
 
-布局保存在 `%LOCALAPPDATA%\DesktopHelper\layout.json`，包括位置、尺寸、分组和入口。自动保存采用临时文件替换；上一次配置保存在 `.bak`。损坏原文件会另存 `.damaged-*` 后尝试恢复备份。卸载程序时保留该目录即可保留数据。
+布局保存在 `%LOCALAPPDATA%\DesktopHelper\layout.json`，包括位置、尺寸、分组和入口。添加文件后先保存再刷新界面。保存采用落盘刷新、临时文件原子替换和读回校验；上一次配置保存在 `.bak`。
+
+分组内容变化时在 `history` 保留独立快照，移动窗口不会覆盖这些历史记录。更新程序前后会在 `recovery/upgrade-*` 备份配置，并在新版启动后核对分组内容。读取失败时会保留损坏原文件，尝试备份和历史；无法恢复就停止加载，不再自动创建空布局覆盖数据。文件锁和版本指纹阻止旧实例覆盖外部更新。卸载程序时保留整个数据目录即可保留数据。
 
 `status.json` 是本机运行诊断，记录进程、桌面模式、独立窗口策略、透明样式、尺寸和项目数量；不上传到服务器。程序无需网络服务。
 
@@ -46,7 +48,7 @@ GitHub Actions 在 `main` 更新时构建独立 EXE，可在 Actions 的 `Deskto
 
 `--self-test` 使用隔离临时目录，验证持久化、备份恢复、路径去重及 WPF 换行。结果写入 EXE 同目录 `self-test-results.txt`。
 
-`--integration-test` 需要登录状态的 Windows 桌面，会创建独立测试面板、临时计算器快捷方式并启动计算器，检查实际 HWND 独立顶层窗口、非置顶、低于前台应用、分层透明样式、鼠标穿透开关、控件排布、滚动和关闭重开。测试数据与渲染截图写入 EXE 同目录 `integration-results`，不改动个人布局。截图是 WPF 内容渲染，不能单独证明桌面合成效果、鼠标真实拖放或所有 Windows 版本的兼容性。
+`--integration-test` 需要登录状态的 Windows 桌面，使用完全透明、不可交互、无托盘图标的隔离测试窗口，不展示测试面板，也不启动计算器或其他应用。检查实际 HWND 独立顶层窗口、非置顶、分层样式、鼠标穿透开关、控件排布、滚动、添加入口立即落盘和关闭重开。测试数据与内容渲染截图写入 EXE 同目录 `integration-results`，不改动个人布局。内容渲染不能单独证明桌面合成效果、鼠标真实拖放或所有 Windows 版本的兼容性。
 
 ## 桌面与透明实现
 
@@ -56,4 +58,4 @@ GitHub Actions 在 `main` 更新时构建独立 EXE，可在 Actions 的 `Deskto
 
 透明及穿透方案参考 [FennecMomo/DesktopTools](https://github.com/FennecMomo/DesktopTools) 的 `desktoptools/native.py` 与 `overlay_window.pyw`（参考提交 `fd2f56a`）：分层透明和 `WS_EX_TRANSPARENT | WS_EX_NOACTIVATE`，在本项目通过 WPF `AllowsTransparency` 提供每像素 alpha。没有直接把 Tk 的颜色键逻辑套到 WPF；保留快捷方式可点击与可从托盘恢复的行为。
 
-版本：0.1.3。
+版本：0.1.4。

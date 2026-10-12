@@ -5,7 +5,8 @@
 - Never reparent WPF into Explorer. Version 0.1.0 caused real desktop rendering problems despite passing HWND checks; use an independent layered window and manage only our own z-order.
 - Freeze the installed/running version before asking the user to inspect it. Do not continue edits or installations while waiting for their answer.
 - Keep Windows rendering checks separate from model tests. WPF renders do not prove the final desktop compositor or real mouse input.
-- Use isolated `--self-test` / `--integration-test` data. The latter requires an interactive Windows desktop and launches Calculator.
+- Use isolated `--self-test` / `--integration-test` data. Integration windows must stay fully transparent, non-interactive and without tray icons; never show disposable test panels on the user's desktop or launch unrelated apps.
+- Preserve content snapshots and pre/post-upgrade backups. Verify the user's groups and shortcut paths after restarting the installed artifact; never silently overwrite unreadable data with defaults.
 - Build to `artifacts/`; exclude binaries, local layouts, logs and personal screenshots from Git.
 - Use `scripts/install.ps1` for the stable local installation and verify installed hashes and the running path.
 - Before committing: review scoped changes, run appropriate tests and `git diff --check`. Commit subjects should contain the version and a concrete Chinese summary. Push only when requested.

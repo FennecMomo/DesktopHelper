@@ -41,11 +41,12 @@ public sealed class MainWindow : Window
     private readonly Thumb moveThumb;
     private readonly List<Thumb> resizeThumbs = [];
     private static SolidColorBrush Brush(string color) => new((Color)ColorConverter.ConvertFromString(color));
-    public MainWindow(StateStore store, bool arrange = false)
+    public MainWindow(StateStore store, bool arrange = false, bool diagnostic = false)
     {
         this.store = store;
         arranging = arrange;
         state = store.Load();
+        if (diagnostic) { Opacity = 0; IsHitTestVisible = false; }
         Title = "DesktopHelper · 桌面空间";
         Width = state.Width; Height = state.Height; MinWidth = 320; MinHeight = 240;
         Left = state.X; Top = state.Y;
@@ -96,7 +97,7 @@ public sealed class MainWindow : Window
             var foreground = DesktopHost.GetForegroundWindow();
             if (foreground != lastForeground || DesktopHost.DesktopIsForeground()) { DesktopHost.MaintainDesktopLayer(handle); lastForeground = foreground; }
         };
-        tray = new() { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application, Text = "DesktopHelper · 桌面空间", Visible = true };
+        tray = new() { Icon = System.Drawing.Icon.ExtractAssociatedIcon(Environment.ProcessPath!) ?? System.Drawing.SystemIcons.Application, Text = "DesktopHelper · 桌面空间", Visible = !diagnostic };
         tray.DoubleClick += (_, _) => Dispatcher.Invoke(Reveal);
         var trayMenu = new System.Windows.Forms.ContextMenuStrip();
         trayMenu.Items.Add("显示桌面区域", null, (_, _) => Dispatcher.Invoke(Reveal));
@@ -167,7 +168,7 @@ public sealed class MainWindow : Window
             store.Save(state);
             File.WriteAllText(Path.Combine(store.DirectoryPath, "status.json"), System.Text.Json.JsonSerializer.Serialize(new
             {
-                Version = "0.1.3", ProcessId = Environment.ProcessId, DesktopMode = !arranging, Strategy = "StandaloneLayeredBottom",
+                Version = "0.1.4", ProcessId = Environment.ProcessId, DesktopMode = !arranging, Strategy = "StandaloneLayeredBottom", DataFile = store.FilePath, SavedRevision = store.Revision,
                 ParentClass = DesktopHost.ClassName(DesktopHost.GetParent(handle)), ParentHandle = DesktopHost.GetParent(handle).ToInt64(),
                 Visible = DesktopHost.IsWindowVisible(handle), X = rect.Left, Y = rect.Top, PixelWidth = rect.Right - rect.Left, PixelHeight = rect.Bottom - rect.Top,
                 Width, Height, state.NoBackground, state.ClickThrough, Layered = DesktopHost.IsLayered(handle), ChildWindow = DesktopHost.IsChild(handle), Topmost = DesktopHost.IsTopmost(handle), GroupCount = state.Groups.Count, ItemCount = state.Groups.Sum(g => g.Items.Count)
@@ -266,7 +267,7 @@ public sealed class MainWindow : Window
                 {
                     if (drag.Group != group && !group.Items.Any(i => string.Equals(i.Path, drag.Item.Path, StringComparison.OrdinalIgnoreCase))) { drag.Group.Items.Remove(drag.Item); group.Items.Add(drag.Item); }
                 }
-                else if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is string[] files) StateStore.AddFiles(group, files);
+                else if (e.Data.GetData(System.Windows.DataFormats.FileDrop) is string[] files) { ImportFiles(group, files); e.Handled = true; return; }
                 e.Handled = true; RenderGroups(); Save();
             };
             groups.Children.Add(box);
@@ -327,7 +328,7 @@ public sealed class MainWindow : Window
     {
         var menu = new System.Windows.Controls.ContextMenu();
         Menu(menu, "重命名分组", () => { var name = Ask("重命名分组", "分组名称", group.Name); if (name is not null) { group.Name = name; RenderGroups(); Save(); } });
-        Menu(menu, "添加文件夹", () => { var dialog = new Microsoft.Win32.OpenFolderDialog(); if (dialog.ShowDialog() == true) { StateStore.AddFiles(group, [dialog.FolderName]); RenderGroups(); Save(); } });
+        Menu(menu, "添加文件夹", () => { var dialog = new Microsoft.Win32.OpenFolderDialog(); if (dialog.ShowDialog() == true) ImportFiles(group, [dialog.FolderName]); });
         Menu(menu, "向前移动", () => { var index = state.Groups.IndexOf(group); if (index > 0) { state.Groups.RemoveAt(index); state.Groups.Insert(index - 1, group); RenderGroups(); Save(); } });
         Menu(menu, "向后移动", () => { var index = state.Groups.IndexOf(group); if (index < state.Groups.Count - 1) { state.Groups.RemoveAt(index); state.Groups.Insert(index + 1, group); RenderGroups(); Save(); } });
         Menu(menu, "删除分组", () =>
@@ -340,8 +341,15 @@ public sealed class MainWindow : Window
     private void AddItems(ShortcutGroup group)
     {
         var dialog = new Microsoft.Win32.OpenFileDialog { Title = "添加应用、快捷方式或文件", Multiselect = true, DereferenceLinks = false, Filter = "所有文件|*.*" };
-        if (dialog.ShowDialog() == true) { StateStore.AddFiles(group, dialog.FileNames); RenderGroups(); Save(); }
+        if (dialog.ShowDialog() == true) ImportFiles(group, dialog.FileNames);
     }
+    private void ImportFiles(ShortcutGroup group, IEnumerable<string> paths)
+    {
+        StateStore.AddFiles(group, paths);
+        // Persist the accepted user operation before rebuilding visual controls.
+        Save(); RenderGroups();
+    }
+    internal void TestImportFiles(string[] paths) => ImportFiles(state.Groups[0], paths);
     private static string? Ask(string title, string label, string value)
     {
         var dialog = new Window { Title = title, Width = 380, Height = 205, ResizeMode = ResizeMode.NoResize, WindowStartupLocation = WindowStartupLocation.CenterScreen, Background = Brush("#1D2938"), ShowInTaskbar = false, FontFamily = new("Microsoft YaHei UI"), Topmost = true };

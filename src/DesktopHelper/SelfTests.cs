@@ -29,6 +29,26 @@ internal static class SelfTests
             var refused = false;
             try { store.Load(); } catch (NotSupportedException) { refused = true; }
             Check(refused && File.ReadAllText(store.FilePath) == newer, "future-version config is never overwritten");
+            var historyStore = new StateStore(Path.Combine(root, "history-case"));
+            var withItems = new DesktopState { Groups = [group] };
+            historyStore.Save(withItems);
+            var withItemsJson = File.ReadAllText(historyStore.FilePath);
+            for (var i = 0; i < 12; i++) { withItems.X += 2; historyStore.Save(withItems); }
+            Check(Directory.GetFiles(Path.Combine(historyStore.DirectoryPath, "history"), "*.json").Any(p => File.ReadAllText(p) == withItemsJson), "geometry saves preserve earlier content snapshot");
+            var stale = new StateStore(historyStore.DirectoryPath); var staleState = stale.Load();
+            withItems.Groups.Add(new() { Name = "新分组" }); historyStore.Save(withItems);
+            var conflictRejected = false;
+            try { stale.Save(staleState); } catch (IOException) { conflictRejected = true; }
+            Check(conflictRejected && historyStore.Load().Groups.Count == 2, "stale instance cannot overwrite newer content");
+            var brokenStore = new StateStore(Path.Combine(root, "broken-case")); Directory.CreateDirectory(brokenStore.DirectoryPath);
+            File.WriteAllText(brokenStore.FilePath, "{broken-original");
+            var loadRejected = false;
+            try { brokenStore.Load(); } catch (InvalidDataException) { loadRejected = true; }
+            var saveRejected = false;
+            try { brokenStore.Save(new()); } catch (IOException) { saveRejected = true; }
+            Check(loadRejected && saveRejected && File.ReadAllText(brokenStore.FilePath) == "{broken-original", "unrecoverable config never becomes default empty data");
+            File.Delete(historyStore.FilePath);
+            Check(new StateStore(historyStore.DirectoryPath).Load().Groups[0].Items.Count == 2, "missing primary recovers persisted content");
             foreach (var available in new[] { 280d, 600d, 640d, 1000d })
             {
                 var width = MainWindow.GroupWidth(available);
